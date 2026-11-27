@@ -1,0 +1,40 @@
+appId: app.innkeeper.desktop
+productName: 掌柜
+executableName: Innkeeper
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+  # LGPL 的 MP3 编码器，单独放一份文件，不打进主程序
+  - from: node_modules/@breezystack/lamejs/dist/lamejs.iife.js
+    to: voice/lamejs.js
+  - from: node_modules/@breezystack/lamejs/LICENSE
+    to: voice/lamejs-LICENSE.txt
+electronLanguages:
+  - zh-CN
+  - en-US
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+win:
+  icon: build/icon.ico
+  artifactName: Innkeeper-${version}-portable.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: 掌柜
+  artifactName: Innkeeper-${version}-setup.${ext}

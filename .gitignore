@@ -1,0 +1,10 @@
+node_modules/
+out/
+release/
+.vite/
+*.log
+.DS_Store
+/workspace/
+/.e2e/
+/Innkeeper/
+/NSFW提示词模板.md
