@@ -1,6 +1,7 @@
 import { BrowserWindow, nativeTheme, shell } from 'electron';
 import path from 'node:path';
 import { UserError } from '../core/errors';
+import { isMac } from '../core/platform';
 import { prefs } from '../core/store';
 import { readConfig } from './config';
 import { tavernProcess } from './process';
@@ -42,7 +43,7 @@ export async function openTavern(where?: 'window' | 'browser'): Promise<void> {
       spellcheck: false,
     },
   });
-  win.setMenu(null);
+  if (!isMac) win.setMenu(null);
   win.once('ready-to-show', () => win?.show());
   win.on('closed', () => {
     win = null;
@@ -67,8 +68,10 @@ export async function openTavern(where?: 'window' | 'browser'): Promise<void> {
   });
   win.webContents.on('before-input-event', (_event, input) => {
     if (input.type !== 'keyDown') return;
-    if (input.key === 'F12') win?.webContents.toggleDevTools();
-    if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) win?.webContents.reload();
+    const key = input.key.toLowerCase();
+    const mod = isMac ? input.meta : input.control;
+    if (input.key === 'F12' || (isMac && input.meta && input.alt && key === 'i')) win?.webContents.toggleDevTools();
+    if (input.key === 'F5' || (mod && key === 'r')) win?.webContents.reload();
     if (input.key === 'F11') win?.setFullScreen(!win.isFullScreen());
   });
   tavernProcess.setWindowOpen(true);

@@ -1,11 +1,13 @@
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { ToolStatus } from '@shared/types';
-import { unzip } from './archive';
+import { untar, unzip } from './archive';
 import { UserError } from './errors';
 import { exec } from './exec';
 import { exists, moveDir, removeDir, sha256File } from './fsx';
 import { download, progressDetail, request } from './net';
+import { isMac, isWin } from './platform';
 import { layout, prefs, which } from './store';
 import type { StepHandle } from './tasks';
 
@@ -65,7 +67,7 @@ export async function ensureNode(step: StepHandle, signal: AbortSignal): Promise
   if (prefs().nodeSource === 'system') {
     throw new UserError(`系统里没有 Node ${MIN_NODE_MAJOR} 以上版本`, '在设置里把运行时改为「自动」，掌柜会下载一份便携版。');
   }
-  if (process.platform !== 'win32') throw new UserError('没有找到 Node.js', '请先安装 Node.js 20 以上版本。');
+  if (!isWin && !isMac) throw new UserError('没有找到 Node.js', '请先安装 Node.js 20 以上版本。');
 
   const bases = [
     `https://registry.npmmirror.com/-/binary/node/latest-v${PORTABLE_MAJOR}.x`,
@@ -85,7 +87,8 @@ export async function ensureNode(step: StepHandle, signal: AbortSignal): Promise
     }
   }
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  const match = new RegExp(`([0-9a-f]{64})\\s+(node-v[\\d.]+-win-${arch}\\.zip)`).exec(manifest);
+  const flavor = isWin ? `win-${arch}\\.zip` : `darwin-${arch}\\.tar\\.gz`;
+  const match = new RegExp(`([0-9a-f]{64})\\s+(node-v[\\d.]+-${flavor})`).exec(manifest);
   if (!match) throw new UserError('取不到 Node.js 下载清单', '检查网络后重试。');
   const [, sha, file] = match;
 
@@ -110,7 +113,9 @@ export async function ensureNode(step: StepHandle, signal: AbortSignal): Promise
   step.detail('解压 Node');
   const staging = `${portableDir()}.staging`;
   await removeDir(staging);
-  await unzip(zip, staging, { strip: 1, signal, onProgress: (r) => step.progress(0.8 + r * 0.2) });
+  // mac 版是 tar 包，里面 bin/npm 等是软链接
+  if (file!.endsWith('.zip')) await unzip(zip, staging, { strip: 1, signal, onProgress: (r) => step.progress(0.8 + r * 0.2) });
+  else await untar(zip, staging, 1);
   await removeDir(portableDir());
   await moveDir(staging, portableDir());
   await fsp.rm(zip, { force: true });
@@ -126,6 +131,11 @@ export async function findGit(): Promise<{ version: string; path: string } | nul
   if (gitCache !== undefined) return gitCache;
   const found = await which('git');
   if (!found) return (gitCache = null);
+  // mac 自带的 /usr/bin/git 只是个壳，没装命令行工具时一运行就弹安装框。这时改用内置的 git
+  if (isMac && found === '/usr/bin/git') {
+    const tools = await exec('/usr/bin/xcode-select', ['-p'], { timeoutMs: 5000 }).catch(() => null);
+    if (tools?.code !== 0) return (gitCache = null);
+  }
   try {
     const { output } = await exec(found, ['--version'], { timeoutMs: 8000 });
     gitCache = { version: /(\d+\.\d+\.\d+)/.exec(output)?.[1] ?? '', path: found };
@@ -147,6 +157,12 @@ export function findGpu(): Promise<ToolStatus['gpu']> {
 
 async function probeGpu(): Promise<ToolStatus['gpu']> {
   let gpuCache: ToolStatus['gpu'] = null;
+  // Apple 芯片显存和内存是一块，Metal 默认最多用到约三分之二（大内存的机器约四分之三）
+  if (isMac && process.arch === 'arm64') {
+    const chip = await exec('/usr/sbin/sysctl', ['-n', 'machdep.cpu.brand_string'], { timeoutMs: 5000 }).catch(() => null);
+    const total = os.totalmem();
+    return { name: chip?.output.trim() || 'Apple 芯片', vramBytes: Math.round(total * (total > 36 * 1024 ** 3 ? 0.75 : 0.66)), vendor: 'apple' };
+  }
   const smi = await which('nvidia-smi');
   if (smi) {
     try {

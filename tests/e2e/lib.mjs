@@ -7,6 +7,12 @@ export const root = path.resolve(import.meta.dirname, '../..');
 export const sandbox = path.join(root, '.e2e');
 export const workspace = (name) => path.join(sandbox, name);
 
+const ELECTRON = {
+  win32: 'node_modules/electron/dist/electron.exe',
+  darwin: 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+  linux: 'node_modules/electron/dist/electron',
+};
+
 export async function launch({ user = 'user-main', ws = 'ws-main', fresh = false, env = {} } = {}) {
   const userData = path.join(sandbox, user);
   if (fresh) {
@@ -15,7 +21,7 @@ export async function launch({ user = 'user-main', ws = 'ws-main', fresh = false
   }
   fs.mkdirSync(sandbox, { recursive: true });
   const app = await _electron.launch({
-    executablePath: path.join(root, 'node_modules/electron/dist/electron.exe'),
+    executablePath: path.join(root, ELECTRON[process.platform] ?? ELECTRON.linux),
     args: [root],
     env: { ...process.env, INNKEEPER_USER_DATA: userData, INNKEEPER_WORKSPACE: workspace(ws), ...env },
   });

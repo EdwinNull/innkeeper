@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, Menu, nativeImage, nativeTheme, protocol, s
 import path from 'node:path';
 import { emit, onLocal, setBusWindow } from './core/bus';
 import { applyProxy } from './core/net';
+import { isMac, widenMacPath } from './core/platform';
 import { loadPrefs, prefs, setPrefs } from './core/store';
 import { avatarThumb } from './features/characters';
 import { comfyKillNow } from './features/comfy';
@@ -22,9 +23,12 @@ const TITLEBAR = 44;
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
+/** 偏好载入、主窗口建好之后才响应程序坞点击和二次启动 */
+let booted = false;
 let titlebarTone: 'auto' | 'onDark' = 'auto';
 
 if (process.env.INNKEEPER_USER_DATA) app.setPath('userData', process.env.INNKEEPER_USER_DATA);
+widenMacPath();
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'innkeeper', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
@@ -36,11 +40,65 @@ const overlay = () => {
   return { color: '#00000000', symbolColor: dark ? '#aab3ab' : '#4c574f', height: TITLEBAR };
 };
 
+/** 只有 Windows 上的窗口按钮是自己画的，要跟着深浅色变；mac 用系统的红绿灯 */
+function applyOverlay() {
+  if (!isMac && win && !win.isDestroyed()) win.setTitleBarOverlay(overlay());
+}
+
 function applyTheme() {
   nativeTheme.themeSource = prefs().theme;
   if (!win || win.isDestroyed()) return;
-  win.setTitleBarOverlay(overlay());
+  applyOverlay();
   win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#0c110f' : '#eef1ec');
+}
+
+/** mac 的菜单栏是全局的，没有「编辑」菜单时输入框里连 ⌘C、⌘V 都用不了 */
+function macMenu() {
+  const name = app.getName();
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: name,
+        submenu: [
+          { role: 'about', label: `关于${name}` },
+          { type: 'separator' },
+          { role: 'services', label: '服务' },
+          { type: 'separator' },
+          { role: 'hide', label: `隐藏${name}` },
+          { role: 'hideOthers', label: '隐藏其他' },
+          { role: 'unhide', label: '全部显示' },
+          { type: 'separator' },
+          { role: 'quit', label: `退出${name}` },
+        ],
+      },
+      {
+        label: '编辑',
+        submenu: [
+          { role: 'undo', label: '撤销' },
+          { role: 'redo', label: '重做' },
+          { type: 'separator' },
+          { role: 'cut', label: '剪切' },
+          { role: 'copy', label: '拷贝' },
+          { role: 'paste', label: '粘贴' },
+          { role: 'pasteAndMatchStyle', label: '粘贴并匹配样式' },
+          { role: 'delete', label: '删除' },
+          { role: 'selectAll', label: '全选' },
+        ],
+      },
+      {
+        label: '窗口',
+        role: 'window',
+        submenu: [
+          { role: 'minimize', label: '最小化' },
+          { role: 'zoom', label: '缩放' },
+          { role: 'togglefullscreen', label: '切换全屏' },
+          { type: 'separator' },
+          { role: 'close', label: '关闭窗口' },
+          { role: 'front', label: '前置全部窗口' },
+        ],
+      },
+    ]),
+  );
 }
 
 function createWindow() {
@@ -56,7 +114,8 @@ function createWindow() {
     icon: iconPath(),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0c110f' : '#eef1ec',
     titleBarStyle: 'hidden',
-    titleBarOverlay: overlay(),
+    // mac 的红绿灯放在侧栏左上角，和标题栏高度对齐
+    ...(isMac ? { trafficLightPosition: { x: 18, y: 16 } } : { titleBarOverlay: overlay() }),
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -65,13 +124,20 @@ function createWindow() {
       spellcheck: false,
     },
   });
-  win.setMenu(null);
+  if (!isMac) win.setMenu(null);
   setBusWindow(win);
   win.once('ready-to-show', () => win?.show());
 
   win.on('close', (event) => {
     if (quitting) return;
-    if (prefs().closeToTray) {
+    // mac 的习惯：关窗口只是收起，应用和酒馆留在程序坞里，⌘Q 才真正退出
+    if (isMac) {
+      event.preventDefault();
+      if (win?.isFullScreen()) {
+        win.once('leave-full-screen', () => win?.hide());
+        win.setFullScreen(false);
+      } else win?.hide();
+    } else if (prefs().closeToTray) {
       event.preventDefault();
       hideToTray();
     } else if (tavernProcess.view().pid) {
@@ -180,10 +246,11 @@ function refreshTray() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', showMain);
+  app.on('second-instance', () => booted && showMain());
 
   void app.whenReady().then(async () => {
-    app.setAppUserModelId('app.innkeeper.desktop');
+    if (isMac) macMenu();
+    else app.setAppUserModelId('app.innkeeper.desktop');
     await loadPrefs();
     await applyProxy();
 
@@ -214,7 +281,7 @@ if (!app.requestSingleInstanceLock()) {
       () => win,
       (tone) => {
         titlebarTone = tone;
-        win?.setTitleBarOverlay(overlay());
+        applyOverlay();
       },
     );
     onLocal('prefs:changed', applyTheme);
@@ -227,13 +294,15 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.on('updated', applyTheme);
 
     createWindow();
+    booted = true;
     await tavernProcess.refresh();
     if (prefs().lan.enabled) void openLan().catch(() => undefined);
     if (prefs().launchTavernOnStart && prefs().onboarded) void tavernProcess.start().catch(() => undefined);
   });
 
+  // 点程序坞图标时把收起的主窗口叫回来
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (booted) showMain();
   });
 
   app.on('before-quit', (event) => {

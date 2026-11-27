@@ -244,7 +244,7 @@ export interface AppInfo {
 export interface ToolStatus {
   node: { source: 'system' | 'portable' | 'none'; version: string | null; path: string | null };
   git: { version: string | null; path: string | null };
-  gpu: { name: string; vramBytes: number | null; vendor: 'nvidia' | 'amd' | 'intel' | 'other' } | null;
+  gpu: { name: string; vramBytes: number | null; vendor: 'nvidia' | 'amd' | 'intel' | 'apple' | 'other' } | null;
 }
 
 export interface ReachResult {

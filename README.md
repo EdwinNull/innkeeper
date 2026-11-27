@@ -34,13 +34,33 @@ SillyTavern（酒馆）的一键部署与管理工具。装本体、接模型、
 
 ## 使用
 
-运行 `release/Innkeeper-0.1.0-setup.exe` 安装，或解压 `Innkeeper-0.1.0-portable.zip` 后运行 `Innkeeper.exe`。
+到 [Release 页](https://github.com/EdwinNull/innkeeper/releases/latest) 下载：
 
-安装包没有代码签名，首次运行时 Windows 会提示「未知发布者」，点「更多信息 → 仍要运行」。
+| 系统 | 文件 |
+| --- | --- |
+| Windows 10 / 11（64 位） | `Innkeeper-<版本>-setup.exe` |
+| Mac，Apple 芯片（M1 及以后） | `Innkeeper-<版本>-mac-arm64.dmg` |
+| Mac，Intel 芯片 | `Innkeeper-<版本>-mac-x64.dmg` |
+
+**Windows**：安装包没有代码签名，首次运行时会提示「未知发布者」，点「更多信息 → 仍要运行」。
+
+**Mac**：没有苹果开发者证书，也没做公证。把「掌柜」拖进「应用程序」后第一次打开会提示无法验证开发者：点「完成」，到「系统设置 → 隐私与安全性」最下面点「仍要打开」。或者在终端里运行一次 `xattr -cr /Applications/掌柜.app`。
+
+### Mac 版
+
+和 Windows 版共用一套代码，下面这些不一样：
+
+- 窗口用系统的红绿灯按钮；关窗口只是收起，酒馆继续营业，点程序坞图标回来，⌘Q 才退出并让酒馆打烊。
+- 从访达打开的应用拿不到终端里的 PATH，掌柜会自己补上 Homebrew 的目录，系统里有 Node、Git 照样能用。系统自带的 `/usr/bin/git` 在没装 Xcode 命令行工具时只是个弹安装框的壳，掌柜认得出来，改用内置的 Git。
+- 本机对话引擎：Apple 芯片装 Metal 版（要 macOS 13.3 以上），Intel 芯片装 CPU 版。Apple 芯片显存和内存是同一块，按内存的三分之二左右算可用显存。
+- 本机语音：sherpa-onnx 有 Mac 版，Apple 芯片和 Intel 都能装。
+- 轻量生图引擎：上游的 Mac 版是在 macOS 26 上编的，低于 26 的系统会直接提示，不去下载。
+- ComfyUI 便携包、GPT-SoVITS 整合包都只有 Windows 版：Mac 上这两个按钮会说明原因，不会去下几个 GB 的 Windows 包。ComfyUI 可以自己装好源码版（带 venv）后绑定目录。
+- 「放行防火墙」按钮只在 Windows 上有；Mac 开了防火墙的话，第一次打开手机连接时系统会问是否允许传入连接。
 
 ### 手机
 
-在「手机」页打开连接，手机和电脑连同一个路由器，扫码即可。第一次打开时 Windows 会问是否允许访问网络，选允许；之前点过取消的，用页面上的「放行防火墙」。
+在「手机」页打开连接，手机和电脑连同一个路由器，扫码即可。第一次打开时 Windows 会问是否允许访问网络，选允许；之前点过取消的，用页面上的「放行防火墙」。Mac 上系统会问是否允许传入连接，选允许。
 
 - 只有配对过的手机能进。二维码与 6 位配对码十分钟一换，用过即失效，连错五次要等五分钟。
 - 只接受内网地址的连接。走的是 HTTP，同一网络里的人理论上能截获内容，不要在公共 Wi-Fi 上开。
@@ -161,7 +181,9 @@ npm run dev        # 开发
 npm test           # 单元测试
 npm run typecheck
 npm run dist       # 打 Windows 安装包，输出到 release/
+npm run dist:mac   # 在 Mac 上打 dmg（Apple 芯片、Intel 各一个），ad-hoc 签名
 npm run e2e        # 端到端测试，会真实下载并启动酒馆，约十分钟
+node tests/e2e/platform.mjs      # 换平台先跑它：一键配置（强制便携版 Node）、三个本机引擎能装能跑；E2E_LIGHT=1 只看界面
 node tests/e2e/local-image.mjs   # 本机生图，首次下载约 2.2 GB
 node tests/e2e/local-llm.mjs     # 本机对话，首次下载约 5.7 GB
 node tests/e2e/local-voice.mjs   # 本机语音，首次下载约 370 MB
@@ -171,6 +193,10 @@ node tests/e2e/voice-clone.mjs   # 克隆声线，要先装好本机语音和 GP
 node tests/e2e/animate.mjs       # 让图动起来，要先跑过 comfy.mjs、下好 WAI v17 和 Wan 2.1 Fun InP；加 E2E_CHAT=1 再走一遍酒馆里的按钮
 node tests/e2e/lora.mjs <文件>    # 角色 LoRA（ComfyUI），要先跑过 comfy.mjs 并下好 WAI v17；随便一个 SDXL LoRA 就行，同一个种子比较加与不加
 ```
+
+### 发布
+
+改好 `package.json` 里的版本号，推送同名标签（如 `v0.2.0`）。GitHub Actions 会在 Windows 上打 exe、在 Apple 芯片的 Mac 上打两个 dmg 并跑 `platform.mjs`，都通过后连同 `SHA256SUMS.txt` 发到 Release 页，说明取自 `.github/release-notes.md`。也可以在 Actions 页手动运行，只打包和检查、不发布。
 
 ### 热更新
 
@@ -221,7 +247,8 @@ tests/               单元测试；tests/e2e/ 为端到端测试
 
 ## 已知限制
 
-- 只在 Windows 11、N 卡上验证过。A 卡、核显没有测。
+- Windows 版只在 Windows 11、N 卡上验证过。A 卡、核显没有测。
+- Mac 版在 GitHub Actions 的 Apple 芯片虚拟机上自动检查：dmg 装好能启动、一键配置走通、对话引擎和本机语音能装能跑。没有在真机上手动用过，Intel 版只确认了能打包，没有启动过。虚拟机没有 Metal 显卡，本机模型出字、出图的速度没有测。
 - 实测过的模型：生图 Anything V5、Anima Turbo、WAI Illustrious v17；对话 Qwen3.5 9B 无拒答版；语音 Kokoro、GPT-SoVITS v5 turbo；视频 Wan 2.1 1.3B、Wan 2.1 Fun InP 1.3B。目录里其余模型只核对了校验值，没有跑过；Wan 2.2 5B 的「动起来」没有跑过。
 - 角色 LoRA 在 ComfyUI 上用一个随机生成的测试 LoRA 实测过（同一个种子，权重 0 和不写逐像素一致，权重 1 明显不同），没有用社区里训练好的角色 LoRA 看过效果。轻量引擎的 `<lora:…>` 只确认了引擎带着 LoRA 目录能启动，没有实际加载过。视频 LoRA 只核对了工作流的接法。
 - 手机连接用手机尺寸的无头浏览器在本机回环上测过，没有用真手机测。「放行防火墙」按钮没有实际点过。

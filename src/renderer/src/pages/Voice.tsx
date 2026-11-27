@@ -6,6 +6,7 @@ import { BrandIcon } from '../components/BrandIcon';
 import { call } from '../lib/api';
 import { classes } from '../lib/format';
 import { useBusy, useDataChanged, useEvent, useLoad } from '../lib/hooks';
+import { isMac } from '../lib/platform';
 import { attempt, confirm, setPrefs, toast, useStore } from '../lib/store';
 import { Button, Check, Combo, Dialog, Empty, Field, IconButton, Note, PageHead, SecretInput, SettingRow, Slider, Switch, TextInput } from '../ui';
 
@@ -260,13 +261,13 @@ function GsvEngine() {
       <li data-done={gsv.dir || undefined}>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="ladder-title">GPT-SoVITS v5</div>
-          <div className="dim truncate selectable">{gsv.dir ?? '克隆声线由它来念。整合包约 10.9 GB，装好占 18 GB'}</div>
+          <div className="dim truncate selectable">{gsv.dir ?? (isMac ? '克隆声线由它来念。官方整合包只有 Windows 版，Mac 上暂时用不了' : '克隆声线由它来念。整合包约 10.9 GB，装好占 18 GB')}</div>
         </div>
         {gsv.dir ? (
           <Button size="sm" variant="ghost" onClick={() => void attempt(async () => set(await call('gsv:bind', null)))}>
             解绑
           </Button>
-        ) : (
+        ) : isMac ? null : (
           <>
             <Button size="sm" variant="ghost" icon={FolderOpen} onClick={() => void bind()}>
               绑定已有

@@ -17,6 +17,7 @@ import { BrandIcon } from '../components/BrandIcon';
 import { call } from '../lib/api';
 import { bytes, classes } from '../lib/format';
 import { useBusy, useDataChanged, useEvent, useLoad } from '../lib/hooks';
+import { isMac } from '../lib/platform';
 import { attempt, confirm, setPrefs, toast, useStore } from '../lib/store';
 import { Button, Combo, Dialog, Empty, Field, IconButton, Menu, NumberInput, Note, PageHead, SecretInput, Select, SettingRow, Slider, Switch, TextInput } from '../ui';
 import { reportImport } from './Characters';
@@ -274,9 +275,11 @@ function EnginePanel({ reprobe, reload: reloadView }: PanelProps) {
             <div className="dim">
               {engine.installed
                 ? `${engine.backend ?? ''} 版，${engine.version ?? ''}`
-                : tools?.gpu
-                  ? `检测到 ${tools.gpu.name}，将安装 Vulkan 版`
-                  : '未检测到独立显卡，将安装 CPU 版，出图很慢'}
+                : isMac
+                  ? '约 40 MB，将安装 Metal 版，要 macOS 26 以上'
+                  : tools?.gpu
+                    ? `检测到 ${tools.gpu.name}，将安装 Vulkan 版`
+                    : '未检测到独立显卡，将安装 CPU 版，出图很慢'}
             </div>
           </div>
           <Button size="sm" variant={engine.installed ? 'ghost' : 'primary'} icon={DownloadSimple} busy={installing} onClick={() => void attempt(() => call('img:engineInstall'))}>
@@ -475,9 +478,13 @@ function ComfyPanel({ view, patch, reprobe }: PanelProps) {
             <Button size="sm" icon={FolderOpen} onClick={() => void bind()}>
               绑定已有目录
             </Button>
-            <Button size="sm" icon={DownloadSimple} busy={installing} onClick={() => void install()}>
-              下载便携版
-            </Button>
+            {isMac ? (
+              <span className="dim">便携版只有 Windows 版。Mac 上先按 ComfyUI 官方说明装好源码版（带 venv），再绑定它的目录。</span>
+            ) : (
+              <Button size="sm" icon={DownloadSimple} busy={installing} onClick={() => void install()}>
+                下载便携版
+              </Button>
+            )}
           </div>
         )}
         {comfy?.dir && (

@@ -135,10 +135,13 @@ export const voiceBackendById = (id: string) => VOICE_BACKENDS.find((b) => b.id 
 /** 本机语音的运行时，npm 两个源的校验值一致 */
 export const VOICE_RUNTIME = {
   version: '2.0.3',
-  packages: [
-    { name: 'sherpa-onnx-node', tarball: 'sherpa-onnx-node/-/sherpa-onnx-node-2.0.3.tgz', integrity: 'sha512-aReA35w32vyoFvX6W1D7nfcN2E7ITOSvs7IU8hjSIN2GaiqIJnjpGhTECC+TwL37DqCTWHqWAMVCQdyBgIC2CA==' },
-    { name: 'sherpa-onnx-win-x64', tarball: 'sherpa-onnx-win-x64/-/sherpa-onnx-win-x64-2.0.3.tgz', integrity: 'sha512-UDPUCNmuhWWC0oNMphHjgdRE0M8bVbUFXk9AyyJUuOtubmxhQBLz2sd2v6RWIAXSDh/7GwPbImLqAWI51ITTNQ==' },
-  ],
+  core: { name: 'sherpa-onnx-node', tarball: 'sherpa-onnx-node/-/sherpa-onnx-node-2.0.3.tgz', integrity: 'sha512-aReA35w32vyoFvX6W1D7nfcN2E7ITOSvs7IU8hjSIN2GaiqIJnjpGhTECC+TwL37DqCTWHqWAMVCQdyBgIC2CA==' },
+  /** 按「平台-架构」挑原生组件 */
+  native: {
+    'win32-x64': { name: 'sherpa-onnx-win-x64', tarball: 'sherpa-onnx-win-x64/-/sherpa-onnx-win-x64-2.0.3.tgz', integrity: 'sha512-UDPUCNmuhWWC0oNMphHjgdRE0M8bVbUFXk9AyyJUuOtubmxhQBLz2sd2v6RWIAXSDh/7GwPbImLqAWI51ITTNQ==' },
+    'darwin-arm64': { name: 'sherpa-onnx-darwin-arm64', tarball: 'sherpa-onnx-darwin-arm64/-/sherpa-onnx-darwin-arm64-2.0.3.tgz', integrity: 'sha512-PuPsSgMvzKYYBG+/CwEZbbtl4kmztravlpN8KmsQy2jWGJ3WjEJ1NkPzUNgEbrq/9s5xnyd20FFlWJXOIcAHoA==' },
+    'darwin-x64': { name: 'sherpa-onnx-darwin-x64', tarball: 'sherpa-onnx-darwin-x64/-/sherpa-onnx-darwin-x64-2.0.3.tgz', integrity: 'sha512-ZFSsikOf0xrnvEl8Xj5Z8IpG0hqWGFDy3HwLFagwV1apftVgh/SVXbwQ+pIf0xFRBrAr+SaR3asvoCEc6DxOSg==' },
+  } as Record<string, { name: string; tarball: string; integrity: string }>,
 };
 
 /** 用全精度版：int8 量化版在桌面 CPU 上反而比实时还慢 */

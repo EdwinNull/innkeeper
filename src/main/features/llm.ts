@@ -5,11 +5,12 @@ import { CHAT_MODELS, chatModelByFile } from '@shared/catalog/llm';
 import { LOCAL_ENGINE_ID } from '@shared/catalog/providers';
 import { WRITER_IDLE_SECONDS, type WriterTarget } from '@shared/catalog/scene';
 import type { ChatEngineStatus, ChatModelFile, TavernPhase, TavernStatus } from '@shared/types';
-import { unzip } from '../core/archive';
+import { untar, unzip } from '../core/archive';
 import { emit } from '../core/bus';
 import { CancelledError, UserError } from '../core/errors';
 import { assertPlainName, ensureSpace, exists, moveDir, readJson, removeDir, writeJson } from '../core/fsx';
 import { download, fetchGithubJson, githubFastest, progressDetail } from '../core/net';
+import { isMac, isWin, macAtLeast } from '../core/platform';
 import { pickPort } from '../core/port';
 import { findGpu } from '../core/runtime';
 import { LocalService, VULKAN_ENV } from '../core/service';
@@ -28,7 +29,7 @@ interface Meta {
   backend: string;
 }
 
-type Variant = 'vulkan' | 'cpu';
+type Variant = 'vulkan' | 'cpu' | 'mac-arm64' | 'mac-x64';
 
 interface Pick {
   tag: string;
@@ -42,7 +43,25 @@ const PINNED = {
   tag: 'b12722',
   vulkan: { file: 'llama-b12722-bin-win-vulkan-x64.zip', size: 39096976, sha256: '1241fdbe50964b74bad10b873688fb95aad3504fd7b159f80a59f59fbddb31f8' },
   cpu: { file: 'llama-b12722-bin-win-cpu-x64.zip', size: 25224705, sha256: '8e0bccb6f41a84ed623084af28530912c96c4194e1fbdce829af3bb2348e1edf' },
+  // mac 版要 macOS 13.3 以上，Apple 芯片版自带 Metal
+  'mac-arm64': { file: 'llama-b12722-bin-macos-arm64.tar.gz', size: 16827533, sha256: 'e940a93856765eff3b2d9c663d123bbeafa06f3220ceaafb0f2382f33983ea3f' },
+  'mac-x64': { file: 'llama-b12722-bin-macos-x64.tar.gz', size: 12555463, sha256: '119f9880beb7b4a6a2dcf1f28668bb6a4b714d235c305cf0230cf9359ef6e9ce' },
 };
+
+/** 上游各平台安装包的文件名结尾 */
+const ASSET_SUFFIX: Record<Variant, string> = {
+  vulkan: 'win-vulkan-x64.zip',
+  cpu: 'win-cpu-x64.zip',
+  'mac-arm64': 'macos-arm64.tar.gz',
+  'mac-x64': 'macos-x64.tar.gz',
+};
+
+const BACKEND: Record<Variant, string> = { vulkan: 'Vulkan', cpu: 'CPU', 'mac-arm64': 'Metal', 'mac-x64': 'CPU' };
+
+async function pickVariant(): Promise<Variant> {
+  if (isMac) return process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
+  return (await findGpu()) ? 'vulkan' : 'cpu';
+}
 
 const REPO = 'ggml-org/llama.cpp';
 const metaFile = () => path.join(layout.llm(), 'innkeeper.json');
@@ -109,7 +128,7 @@ function pinnedPick(variant: Variant): Pick {
 async function latestPick(variant: Variant): Promise<Pick> {
   const list = await fetchGithubJson<Release[]>(`https://api.github.com/repos/${REPO}/releases?per_page=6`, { timeoutMs: 15_000 });
   for (const release of list) {
-    const asset = release.assets.find((a) => a.name.endsWith(`win-${variant}-x64.zip`) && a.name.startsWith('llama-') && a.digest?.startsWith('sha256:'));
+    const asset = release.assets.find((a) => a.name.endsWith(ASSET_SUFFIX[variant]) && a.name.startsWith('llama-') && a.digest?.startsWith('sha256:'));
     if (asset) return { tag: release.tag_name, url: asset.browser_download_url, size: asset.size, sha256: asset.digest!.slice(7) };
   }
   throw new UserError('上游最近几版都没有合适的安装包', '过一阵再试。');
@@ -117,7 +136,8 @@ async function latestPick(variant: Variant): Promise<Pick> {
 
 /** 首次安装用测过的固定版本，已安装时更新到最新。 */
 export function installChatEngine(): string {
-  if (process.platform !== 'win32') throw new UserError('本机对话引擎目前只提供 Windows 版');
+  if (!isWin && !isMac) throw new UserError('本机对话引擎目前只提供 Windows 和 Mac 版');
+  if (isMac && !macAtLeast(13, 3)) throw new UserError('本机对话引擎要 macOS 13.3 以上', '升级系统后再试，或改用云端模型。');
   return startTask(
     'llm-install',
     '安装本机对话引擎',
@@ -127,8 +147,8 @@ export function installChatEngine(): string {
       { key: 'unpack', title: '解包' },
     ],
     async (task) => {
-      const variant: Variant = (await findGpu()) ? 'vulkan' : 'cpu';
-      const backend = variant === 'vulkan' ? 'Vulkan' : 'CPU';
+      const variant = await pickVariant();
+      const backend = BACKEND[variant];
       const updating = exists(serverExe());
       let pick = await task.run('find', async (step) => {
         const found = updating ? await latestPick(variant) : pinnedPick(variant);
@@ -164,7 +184,9 @@ export function installChatEngine(): string {
         const zip = zipOf(pick);
         const staging = `${layout.llm()}.staging`;
         await removeDir(staging);
-        await unzip(zip, staging, { signal: task.signal, onProgress: (r) => step.progress(r) });
+        // mac 版是 tar 包，里面的动态库靠软链接互相找到
+        if (zip.endsWith('.zip')) await unzip(zip, staging, { signal: task.signal, onProgress: (r) => step.progress(r) });
+        else await untar(zip, staging, 0);
         const exe = path.basename(serverExe());
         const root = exists(path.join(staging, exe)) ? staging : path.join(staging, (await fsp.readdir(staging))[0] ?? '');
         if (!exists(path.join(root, exe))) throw new UserError('安装包里没有 llama-server', '上游可能调整了打包方式，换个版本再试。');

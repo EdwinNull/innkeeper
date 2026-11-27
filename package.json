@@ -1,7 +1,7 @@
 {
   "name": "innkeeper",
   "productName": "掌柜",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SillyTavern 一键部署与管理",
   "private": true,
   "type": "module",
@@ -16,6 +16,7 @@
     "test": "vitest run",
     "icon": "node scripts/make-icon.mjs",
     "dist": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac",
     "hot-update": "node scripts/hot-update.mjs",
     "postinstall": "install-electron",
     "e2e": "electron-vite build && node tests/e2e/run.mjs"

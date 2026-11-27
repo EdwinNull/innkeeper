@@ -38,3 +38,21 @@ nsis:
   deleteAppDataOnUninstall: false
   shortcutName: 掌柜
   artifactName: Innkeeper-${version}-setup.${ext}
+# Mac：Apple 芯片、Intel 各出一个 dmg。没有苹果开发者证书，用 ad-hoc 签名，
+# Apple 芯片上未签名的程序根本跑不起来；首次打开要在「隐私与安全性」里点「仍要打开」
+mac:
+  icon: build/icon-mac.png
+  category: public.app-category.utilities
+  artifactName: Innkeeper-${version}-mac-${arch}.${ext}
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  identity: '-'
+  # 公证才需要强化运行时；ad-hoc 签名下打开它反而可能因库校验启动失败
+  hardenedRuntime: false
+  extendInfo:
+    NSMicrophoneUsageDescription: 录制克隆声线的参考音频时需要使用麦克风。
+    NSLocalNetworkUsageDescription: 手机连接功能需要让同一局域网里的手机访问掌柜。
+dmg:
+  title: 掌柜 ${version}
+  artifactName: Innkeeper-${version}-mac-${arch}.${ext}

@@ -59,4 +59,13 @@ images.forEach((img, i) => {
   offset += img.length;
 });
 await fs.writeFile(path.join(out, 'icon.ico'), Buffer.concat([header, ...images]));
-console.log('build/icon.png, build/icon.ico');
+
+// mac 图标按苹果的网格：圆角方块约占画布 82%，四周留透明边，程序坞里才和别的图标一样大
+const inner = 944;
+const pad = (1024 - inner) / 2;
+const mac = await sharp(await png(inner))
+  .extend({ top: pad, bottom: pad, left: pad, right: pad, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+  .png({ compressionLevel: 9 })
+  .toBuffer();
+await fs.writeFile(path.join(out, 'icon-mac.png'), mac);
+console.log('build/icon.png, build/icon.ico, build/icon-mac.png');

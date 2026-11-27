@@ -9,6 +9,7 @@ import { UserError } from '../core/errors';
 import { exec } from '../core/exec';
 import { ensureSpace, exists, moveDir, readJson, removeDir, sha256File, writeJson } from '../core/fsx';
 import { download, githubCandidates, githubFastest, progressDetail, request } from '../core/net';
+import { systemTar } from '../core/platform';
 import { pickPort } from '../core/port';
 import { findNode } from '../core/runtime';
 import { LocalService } from '../core/service';
@@ -39,7 +40,7 @@ const lamePath = () =>
   app.isPackaged ? path.join(process.resourcesPath, 'voice', 'lamejs.js') : path.join(app.getAppPath(), 'node_modules', '@breezystack', 'lamejs', 'dist', 'lamejs.iife.js');
 
 const explain = (tail: string): string | null => {
-  if (/Could not find sherpa-onnx-node|ERR_DLOPEN_FAILED|specified module could not be found/i.test(tail)) return '语音组件没装好，重新安装一次；还不行就装一下微软 VC 运行库';
+  if (/Could not find sherpa-onnx-node|ERR_DLOPEN_FAILED|specified module could not be found/i.test(tail)) return process.platform === 'win32' ? '语音组件没装好，重新安装一次；还不行就装一下微软 VC 运行库' : '语音组件没装好，重新安装一次';
   if (/EADDRINUSE/.test(tail)) return '端口被占用';
   return null;
 };
@@ -54,7 +55,9 @@ export async function voiceEngineStatus(): Promise<VoiceEngineStatus> {
 }
 
 export function installVoice(): string {
-  if (process.platform !== 'win32' || process.arch !== 'x64') throw new UserError('本机语音目前只提供 64 位 Windows 版');
+  const native = VOICE_RUNTIME.native[`${process.platform}-${process.arch}`];
+  if (!native) throw new UserError('本机语音目前只提供 64 位 Windows 和 Mac 版');
+  const packages = [VOICE_RUNTIME.core, native];
   return startTask(
     'voice-install',
     '安装本机语音',
@@ -69,13 +72,13 @@ export function installVoice(): string {
       await task.run('runtime', async (step) => {
         await removeDir(staging);
         const bases = [...new Set([prefs().npmRegistry.replace(/\/+$/, ''), 'https://registry.npmmirror.com', 'https://registry.npmjs.org'])];
-        for (const [i, p] of VOICE_RUNTIME.packages.entries()) {
+        for (const [i, p] of packages.entries()) {
           const tgz = path.join(layout.downloads(), path.basename(p.tarball));
           await download(bases.map((b) => `${b}/${p.tarball}`), tgz, {
             signal: task.signal,
             integrity: p.integrity,
             onProgress: (x) => {
-              step.progress((i + (x.total ? x.received / x.total : 0)) / VOICE_RUNTIME.packages.length);
+              step.progress((i + (x.total ? x.received / x.total : 0)) / packages.length);
               step.detail(`${x.source}，${progressDetail(x)}`);
             },
           });
@@ -104,8 +107,7 @@ export function installVoice(): string {
           const out = `${layout.voiceModels()}.staging`;
           await removeDir(out);
           await fsp.mkdir(out, { recursive: true });
-          const tar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
-          const { code, output } = await exec(tar, ['-xf', archive, '-C', out], { signal: task.signal });
+          const { code, output } = await exec(systemTar(), ['-xf', archive, '-C', out], { signal: task.signal });
           if (code !== 0) throw new UserError('语音模型解压失败', output.trim().slice(-160));
           await removeDir(modelDir());
           await moveDir(path.join(out, VOICE_MODEL.dir), modelDir());

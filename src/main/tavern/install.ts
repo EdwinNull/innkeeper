@@ -309,7 +309,7 @@ export async function adopt(dir: string) {
   const info = await inspectTavern(dir);
   if (!info.ok) throw new UserError(info.message, '请选择包含 server.js 的 SillyTavern 根目录。');
   if (!exists(path.join(dir, 'node_modules'))) {
-    throw new UserError('这个酒馆还没装过依赖', '先双击一次它的 Start.bat，或改用掌柜托管安装。');
+    throw new UserError('这个酒馆还没装过依赖', process.platform === 'win32' ? '先双击一次它的 Start.bat，或改用掌柜托管安装。' : '先在终端里运行一次它的 start.sh，或改用掌柜托管安装。');
   }
   await tavernProcess.stop();
   await setPrefs({ tavernMode: 'adopted', adoptedRoot: path.resolve(dir) });

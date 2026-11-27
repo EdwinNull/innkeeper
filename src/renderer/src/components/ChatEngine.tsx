@@ -6,6 +6,7 @@ import type { ToolStatus } from '@shared/types';
 import { call } from '../lib/api';
 import { bytes } from '../lib/format';
 import { useBusy, useEvent, useLoad } from '../lib/hooks';
+import { isMac } from '../lib/platform';
 import { attempt, confirm, setPrefs, useStore } from '../lib/store';
 import { Button, Dialog, Menu, NumberInput, Section, Select, SettingRow, Switch } from '../ui';
 
@@ -45,9 +46,13 @@ export function ChatEngine() {
             <div className="dim">
               {engine.installed
                 ? `llama.cpp ${engine.version ?? ''}，${engine.backend ?? ''} 版`
-                : tools?.gpu
-                  ? `约 40 MB，检测到 ${tools.gpu.name}，将安装 Vulkan 版`
-                  : '约 25 MB，未检测到独立显卡，将安装 CPU 版，说话会比较慢'}
+                : isMac
+                  ? tools?.gpu
+                    ? `约 17 MB，${tools.gpu.name}，将安装 Metal 版，要 macOS 13.3 以上`
+                    : '约 13 MB，Intel 芯片的 Mac 只有 CPU 版，说话会比较慢'
+                  : tools?.gpu
+                    ? `约 40 MB，检测到 ${tools.gpu.name}，将安装 Vulkan 版`
+                    : '约 25 MB，未检测到独立显卡，将安装 CPU 版，说话会比较慢'}
             </div>
           </div>
           <Button size="sm" variant={engine.installed ? 'ghost' : 'primary'} icon={DownloadSimple} busy={installing} onClick={() => void attempt(() => call('llm:install'))}>

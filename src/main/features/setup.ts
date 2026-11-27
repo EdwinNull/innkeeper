@@ -4,6 +4,7 @@ import { extensionById } from '@shared/catalog/extensions';
 import { imageBackendById } from '@shared/catalog/imagegen';
 import type { SetupPlan } from '@shared/types';
 import { UserError } from '../core/errors';
+import { isWin } from '../core/platform';
 import { prefs, setPrefs } from '../core/store';
 import { hasRunning, startTask } from '../core/tasks';
 import { adopt, INSTALL_STEPS, installedVersions, latestVersion, runInstall } from '../tavern/install';
@@ -49,8 +50,9 @@ export function runSetup(plan: SetupPlan): string {
 
     if (plan.mode === 'managed') {
       const workspace = path.resolve(plan.workspace);
-      if (/[\\/](program files|windows)([\\/]|$)/i.test(workspace)) {
-        throw new UserError('不能装在系统目录里', '换到普通文件夹，例如 D:\\Innkeeper。');
+      const system = isWin ? /[\\/](program files|windows)([\\/]|$)/i : /^\/(System|Library|usr|bin|sbin|private)(\/|$)|\.app(\/|$)/;
+      if (system.test(workspace)) {
+        throw new UserError('不能装在系统目录里', isWin ? '换到普通文件夹，例如 D:\\Innkeeper。' : '换到普通文件夹，例如「用户」目录下的 Innkeeper。');
       }
       await fsp.mkdir(workspace, { recursive: true });
       await setPrefs({ workspace, tavernMode: 'managed' });

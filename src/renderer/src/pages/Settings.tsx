@@ -5,6 +5,7 @@ import { Logo } from '../components/Logo';
 import { call } from '../lib/api';
 import { bytes, classes } from '../lib/format';
 import { useBusy, useLoad } from '../lib/hooks';
+import { isMac } from '../lib/platform';
 import { attempt, confirm, setPrefs, toast, useStore } from '../lib/store';
 import { Button, PageHead, Section, Segmented, Select, SettingRow, Switch, TextInput } from '../ui';
 
@@ -87,9 +88,12 @@ export function SettingsPage() {
         <SettingRow title="打开掌柜时启动酒馆">
           <Switch label="打开掌柜时启动酒馆" checked={prefs.launchTavernOnStart} onChange={(v) => save({ launchTavernOnStart: v })} />
         </SettingRow>
-        <SettingRow title="关闭窗口时留在托盘" note="酒馆继续运行，点托盘图标回来。">
-          <Switch label="留在托盘" checked={prefs.closeToTray} onChange={(v) => save({ closeToTray: v })} />
-        </SettingRow>
+        {/* mac 上关窗口本来就只是收起，点程序坞图标回来 */}
+        {!isMac && (
+          <SettingRow title="关闭窗口时留在托盘" note="酒馆继续运行，点托盘图标回来。">
+            <Switch label="留在托盘" checked={prefs.closeToTray} onChange={(v) => save({ closeToTray: v })} />
+          </SettingRow>
+        )}
       </Section>
 
       <Section title="内容">

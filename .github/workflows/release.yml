@@ -1,0 +1,133 @@
+name: 打包发布
+
+# 推送 v 开头的标签时：Windows 出 exe，mac 出 Apple 芯片和 Intel 两个 dmg，全部通过后发到 Release 页。
+# 手动运行时只打包和检查，不发布，产物在这次运行的 Artifacts 里。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      e2e:
+        description: 在 mac 上跑完整的平台检查（一键配置、本机引擎，约二十分钟）
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  # .npmrc 里是国内镜像，CI 在海外，Electron 和打包工具直接走 GitHub
+  ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx vitest run
+      - run: npx electron-vite build
+      - run: npx electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows
+          path: release/*.exe
+          if-no-files-found: error
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx vitest run
+      - run: npx electron-vite build
+      - run: npx electron-builder --mac dmg --arm64 --x64 --publish never
+
+      - name: 检查签名与 dmg
+        run: |
+          set -e
+          sw_vers
+          ls -la release
+          # electron-builder 把 Intel 版放在 release/mac，Apple 芯片版放在 release/mac-arm64
+          for app in release/mac/*.app release/mac-arm64/*.app; do
+            echo "== $app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv "$app" 2>&1 | grep -E 'Signature|Identifier|Format'
+            lipo -archs "$app/Contents/MacOS/Innkeeper"
+            /usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$app/Contents/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print NSMicrophoneUsageDescription' "$app/Contents/Info.plist"
+          done
+          for dmg in release/*.dmg; do hdiutil verify "$dmg"; done
+
+      - name: 从 dmg 装好后启动
+        run: |
+          set -e
+          dmg="$(ls release/*-mac-arm64.dmg)"
+          mnt="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+          ls "$mnt"
+          cp -R "$mnt"/*.app "$RUNNER_TEMP/"
+          hdiutil detach "$mnt"
+          app="$(ls -d "$RUNNER_TEMP"/*.app | head -1)"
+          ud="$RUNNER_TEMP/userdata"
+          INNKEEPER_USER_DATA="$ud" INNKEEPER_WORKSPACE="$RUNNER_TEMP/ws" "$app/Contents/MacOS/Innkeeper" > "$RUNNER_TEMP/app.log" 2>&1 &
+          pid=$!
+          sleep 25
+          mkdir -p .e2e/shots
+          screencapture -x .e2e/shots/packaged-app.png || true
+          if ! kill -0 $pid 2>/dev/null; then echo "应用没撑过 25 秒"; cat "$RUNNER_TEMP/app.log"; exit 1; fi
+          ls "$ud"
+          test -e "$ud/Local State"
+          kill $pid
+          cat "$RUNNER_TEMP/app.log" | tail -20
+
+      - name: 平台检查（一键配置、本机引擎）
+        if: github.event_name == 'push' || inputs.e2e
+        run: node tests/e2e/platform.mjs
+        timeout-minutes: 40
+
+      - name: 轻量平台检查
+        if: github.event_name == 'workflow_dispatch' && !inputs.e2e
+        run: node tests/e2e/platform.mjs
+        env:
+          E2E_LIGHT: '1'
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: mac-screenshots
+          path: .e2e/shots/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v5
+        with:
+          name: mac
+          path: release/*.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: 发布
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "掌柜 ${GITHUB_REF_NAME#v}" \
+            --notes-file .github/release-notes.md

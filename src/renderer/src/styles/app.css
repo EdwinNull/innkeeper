@@ -2173,3 +2173,13 @@
   background: var(--amber);
   transition: width 0.25s linear;
 }
+
+/* —— mac：系统红绿灯在左上角，侧栏和向导往下让出一行 —— */
+
+:root[data-os='mac'] .sidebar {
+  padding-top: var(--titlebar);
+}
+
+:root[data-os='mac'] .setup-side-body {
+  padding-top: calc(var(--titlebar) + 12px);
+}

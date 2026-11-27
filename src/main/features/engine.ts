@@ -10,6 +10,7 @@ import { CancelledError, UserError } from '../core/errors';
 import { killTree, stripAnsi } from '../core/exec';
 import { assertPlainName, delay, exists, moveDir, readJson, removeDir, writeJson } from '../core/fsx';
 import { download, fetchGithubJson, githubCandidates, progressDetail, request } from '../core/net';
+import { isMac, isWin, macAtLeast } from '../core/platform';
 import { pickPort } from '../core/port';
 import { findGpu } from '../core/runtime';
 import { VULKAN_ENV } from '../core/service';
@@ -125,9 +126,19 @@ const PINNED = {
   tag: 'master-1127-79dc7ca',
   vulkan: { file: 'sd-master-79dc7ca-bin-win-vulkan-x64.zip', size: 30956796, sha256: 'cc504eabda2001367ab21d752b27da60a884e7c5c61f84d79e006b5ea4e5dc9f' },
   cpu: { file: 'sd-master-79dc7ca-bin-win-cpu-x64.zip', size: 19004333, sha256: '345d3ab72eec70c23f29cd3414a4403f8ee4d706811cd04b92e3b3ac9c75edbb' },
+  // 通用二进制，Apple 芯片和 Intel 都能跑，但上游是在 macOS 26 上编的，最低也要 26
+  metal: { file: 'sd-master-79dc7ca-bin-Darwin-macOS-26.7.2-arm64.zip', size: 39649910, sha256: '3813e319158289a23e512992cf2a8429664c9af808305d2d9e5cdd150f803447' },
 };
 
-type Variant = 'vulkan' | 'cpu';
+type Variant = 'vulkan' | 'cpu' | 'metal';
+
+const ASSET: Record<Variant, (name: string) => boolean> = {
+  vulkan: (n) => n.includes('win-vulkan-x64') && n.endsWith('.zip'),
+  cpu: (n) => n.includes('win-cpu-x64') && n.endsWith('.zip'),
+  metal: (n) => /-bin-Darwin-macOS-[\d.]+-arm64\.zip$/.test(n),
+};
+
+const BACKEND: Record<Variant, string> = { vulkan: 'Vulkan', cpu: 'CPU', metal: 'Metal' };
 
 function pinnedPick(variant: Variant): Pick {
   const { file, size, sha256 } = PINNED[variant];
@@ -138,7 +149,7 @@ function pinnedPick(variant: Variant): Pick {
 async function latestPick(variant: Variant): Promise<Pick> {
   const list = await fetchGithubJson<Release[]>('https://api.github.com/repos/leejet/stable-diffusion.cpp/releases?per_page=8', { timeoutMs: 12_000 });
   for (const release of list) {
-    const asset = release.assets.find((a) => a.name.includes(`win-${variant}-x64`) && a.name.endsWith('.zip') && a.digest?.startsWith('sha256:'));
+    const asset = release.assets.find((a) => ASSET[variant](a.name) && a.digest?.startsWith('sha256:'));
     if (asset) return { tag: release.tag_name, url: asset.browser_download_url, size: asset.size, sha256: asset.digest!.slice(7) };
   }
   throw new UserError('上游最近几版都没有合适的安装包', '过一阵再试。');
@@ -146,7 +157,8 @@ async function latestPick(variant: Variant): Promise<Pick> {
 
 /** 首次安装用测过的固定版本，固定版本被上游撤下时再取最新；已安装时则更新到最新。 */
 export function installEngine(): string {
-  if (process.platform !== 'win32') throw new UserError('轻量引擎目前只提供 Windows 版');
+  if (!isWin && !isMac) throw new UserError('轻量引擎目前只提供 Windows 和 Mac 版');
+  if (isMac && !macAtLeast(26)) throw new UserError('轻量引擎的 Mac 版要 macOS 26 以上', '上游只出了这个版本。可以改用 ComfyUI 或云端生图。');
   return startTask(
     'engine-install',
     '安装轻量生图引擎',
@@ -156,8 +168,8 @@ export function installEngine(): string {
       { key: 'unpack', title: '解包' },
     ],
     async (task) => {
-      const variant: Variant = (await findGpu()) ? 'vulkan' : 'cpu';
-      const backend = variant === 'vulkan' ? 'Vulkan' : 'CPU';
+      const variant: Variant = isMac ? 'metal' : (await findGpu()) ? 'vulkan' : 'cpu';
+      const backend = BACKEND[variant];
       const updating = Boolean(await findServer());
       let pick = await task.run('find', async (step) => {
         const found = updating ? await latestPick(variant) : pinnedPick(variant);
@@ -326,7 +338,8 @@ async function launch(modelFile: string): Promise<EngineStatus> {
   // 权重先放内存、用到再搬进显存，速度几乎不变，但显存紧的时候不会画到一半失败
   const family = (await listModels()).find((m) => m.file === modelFile)?.family;
   const vram = (await findGpu())?.vramBytes ?? null;
-  const tight = chatEngineBusy() || (vram !== null && vram < 9 * 1024 ** 3 && family !== 'SD 1.5');
+  // Apple 芯片显存就是内存，挪到「内存」只会多占一份
+  const tight = !isMac && (chatEngineBusy() || (vram !== null && vram < 9 * 1024 ** 3 && family !== 'SD 1.5'));
   const offload = tight && !extra.some((x) => /^--(offload-to-cpu|params-backend)/.test(x)) ? ['--offload-to-cpu'] : [];
   const hires = await hiresArgs();
   // 提示词里写 <lora:文件名:0.8> 时到这里找，和 ComfyUI 共用一个目录

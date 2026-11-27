@@ -8,6 +8,7 @@ import { UserError } from '../core/errors';
 import { ensureSpace, exists, moveDir, removeDir } from '../core/fsx';
 import { download, progressDetail } from '../core/net';
 import { pickPort } from '../core/port';
+import { isWin } from '../core/platform';
 import { findGpu } from '../core/runtime';
 import { LocalService } from '../core/service';
 import { layout, prefs, setPrefs } from '../core/store';
@@ -138,6 +139,7 @@ async function pickPackage(): Promise<GsvPackage> {
 
 /** 下载官方整合包并解压。十几 GB，走 ModelScope 国内线路，多条连接，断点续传。 */
 export function installGsv(): string {
+  if (!isWin) throw new UserError('声线克隆目前只有 Windows 版', 'GPT-SoVITS 官方整合包只出了 Windows 版，Mac 上可以用本机语音的现成音色或云端配音。');
   return startTask(
     'gsv-install',
     '安装 GPT-SoVITS v5',

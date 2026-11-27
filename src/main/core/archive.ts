@@ -7,6 +7,8 @@ import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { CancelledError } from './errors';
 import { insideOrThrow } from './fsx';
 
+const POSIX = process.platform !== 'win32';
+
 function openZip(file: string): Promise<ZipFile> {
   return new Promise((resolve, reject) => {
     yauzl.open(file, { lazyEntries: true, autoClose: true }, (error, zip) => (error || !zip ? reject(error) : resolve(zip)));
@@ -37,11 +39,24 @@ export async function unzip(file: string, dest: string, options: UnzipOptions = 
       const rel = entry.fileName.split('/').slice(options.strip ?? 0).join('/');
       if (rel) {
         const target = insideOrThrow(dest, rel);
+        // 在 mac、Linux 上打的包带着 Unix 权限位，可执行文件和动态库的软链接要还原
+        const mode = POSIX && entry.versionMadeBy >> 8 === 3 ? entry.externalFileAttributes >>> 16 : 0;
         if (entry.fileName.endsWith('/')) {
           await fsp.mkdir(target, { recursive: true });
+        } else if ((mode & 0o170000) === 0o120000) {
+          await fsp.mkdir(path.dirname(target), { recursive: true });
+          const chunks: Buffer[] = [];
+          for await (const chunk of await entryStream(zip, entry)) chunks.push(chunk as Buffer);
+          const link = Buffer.concat(chunks).toString('utf8');
+          // 链接只能指向包内
+          if (!link || path.posix.isAbsolute(link)) throw new Error(`压缩包内含非法链接：${rel}`);
+          insideOrThrow(dest, path.posix.join(path.posix.dirname(rel), link));
+          await fsp.rm(target, { force: true });
+          await fsp.symlink(link, target);
         } else {
           await fsp.mkdir(path.dirname(target), { recursive: true });
           await pipeline(await entryStream(zip, entry), createWriteStream(target));
+          if (mode & 0o111) await fsp.chmod(target, mode & 0o777);
         }
       }
       zip.readEntry();

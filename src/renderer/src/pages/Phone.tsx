@@ -6,6 +6,7 @@ import type { LanStatus } from '@shared/types';
 import { call } from '../lib/api';
 import { ago, classes } from '../lib/format';
 import { useBusy, useEvent, useLoad } from '../lib/hooks';
+import { isMac } from '../lib/platform';
 import { attempt, confirm, toast, useStore } from '../lib/store';
 import { Button, Empty, IconButton, Note, PageHead, Section, Select, Switch } from '../ui';
 
@@ -46,7 +47,7 @@ export function PhonePage() {
             <li data-done={lan.running || undefined}>
               <div className="grow">
                 <div className="ladder-title">打开连接</div>
-                <div className="dim">{lan.error ?? (lan.running ? `正在等手机来，端口 ${lan.port}` : '第一次打开时，Windows 会问是否允许访问网络，选允许')}</div>
+                <div className="dim">{lan.error ?? (lan.running ? `正在等手机来，端口 ${lan.port}` : (isMac ? '第一次打开时，系统会问是否允许接受传入的网络连接，选允许' : '第一次打开时，Windows 会问是否允许访问网络，选允许'))}</div>
               </div>
               <Switch label="打开手机连接" checked={lan.enabled && lan.running} disabled={busy} onChange={(v) => void toggle(v)} />
             </li>
@@ -106,9 +107,13 @@ export function PhonePage() {
             <ul className="tips">
               <li>手机关掉流量和代理软件，确认连的是同一个 Wi-Fi。公司、宿舍、酒店的网络常常不让设备互相访问，可以让电脑连手机热点。</li>
               <li>电脑开着代理软件的话，上面的地址要选真实网卡，不选虚拟网卡。</li>
-              <li>多半是 Windows 防火墙拦住了，点下面的按钮放行，会弹出管理员确认。只放行同一网段的设备。</li>
+              {isMac ? (
+                <li>开了系统防火墙的话，到「系统设置 → 网络 → 防火墙 → 选项」里把「掌柜」设为允许传入连接。</li>
+              ) : (
+                <li>多半是 Windows 防火墙拦住了，点下面的按钮放行，会弹出管理员确认。只放行同一网段的设备。</li>
+              )}
             </ul>
-            <Firewall lan={lan} />
+            {!isMac && <Firewall lan={lan} />}
             <Note>手机和电脑不要同时开着同一段聊天，后保存的会盖掉先保存的。电脑上改了设置，手机页面会提示刷新。</Note>
           </Section>
         </div>

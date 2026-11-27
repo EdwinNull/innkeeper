@@ -8,6 +8,7 @@ import { UserError } from '../core/errors';
 import { exec } from '../core/exec';
 import { ensureSpace, exists, moveDir, removeDir } from '../core/fsx';
 import { download, fetchGithubJson, githubFastest, progressDetail, request } from '../core/net';
+import { isWin, systemTar } from '../core/platform';
 import { pickPort } from '../core/port';
 import { LocalService } from '../core/service';
 import { layout, prefs, setPrefs } from '../core/store';
@@ -33,13 +34,22 @@ function detect(dir: string): Layout | null {
   }
   const main = path.join(dir, 'main.py');
   if (exists(main) && exists(path.join(dir, 'comfy'))) {
-    const python = [
-      path.join(dir, 'venv', 'Scripts', 'python.exe'),
-      path.join(dir, '.venv', 'Scripts', 'python.exe'),
-      path.join(path.dirname(dir), 'python', 'python.exe'),
-      path.join(dir, 'python', 'python.exe'),
-    ].find(exists);
-    return { kind: 'source', python: python ?? 'python', main, cwd: dir, models: path.join(dir, 'models', 'checkpoints') };
+    const python = (
+      isWin
+        ? [
+            path.join(dir, 'venv', 'Scripts', 'python.exe'),
+            path.join(dir, '.venv', 'Scripts', 'python.exe'),
+            path.join(path.dirname(dir), 'python', 'python.exe'),
+            path.join(dir, 'python', 'python.exe'),
+          ]
+        : [
+            path.join(dir, 'venv', 'bin', 'python'),
+            path.join(dir, '.venv', 'bin', 'python'),
+            path.join(dir, 'venv', 'bin', 'python3'),
+            path.join(dir, '.venv', 'bin', 'python3'),
+          ]
+    ).find(exists);
+    return { kind: 'source', python: python ?? (isWin ? 'python' : 'python3'), main, cwd: dir, models: path.join(dir, 'models', 'checkpoints') };
   }
   return null;
 }
@@ -239,7 +249,7 @@ const KEEP = ['models', 'custom_nodes', 'user', 'input', 'output', 'extra_model_
 
 /** 系统自带的 tar 在 Windows 11 上能解 7z，Windows 10 上不行，退而找装好的 7-Zip。 */
 export async function unpack7z(archive: string, dest: string, signal: AbortSignal, onProgress: (ratio: number) => void): Promise<void> {
-  const tar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  const tar = systemTar();
   const lastLine = (s: string) => s.trim().split(/\r?\n/).at(-1)?.slice(0, 160);
   let total = 0;
   const listed = await exec(tar, ['-tf', archive], { signal, timeoutMs: 120_000, onLine: () => void total++ }).catch((error) => {
@@ -294,6 +304,7 @@ export async function carryOver(from: string, to: string): Promise<void> {
 
 /** 下载官方便携包并解压。已经装过时保留模型、节点、工作流和出图。 */
 export function installComfy(variant: keyof typeof ASSETS): string {
+  if (!isWin) throw new UserError('ComfyUI 便携版只有 Windows 版', 'Mac 上按 ComfyUI 官方说明装好源码版（带 venv），再点「绑定已有目录」。');
   return startTask(
     'comfy-install',
     '安装 ComfyUI 便携版',
