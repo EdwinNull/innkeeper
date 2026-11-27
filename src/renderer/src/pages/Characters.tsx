@@ -28,6 +28,7 @@ export function CharactersPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
   const [tag, setTag] = useState<string | null>(null);
+  const [favOnly, setFavOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dropping, setDropping] = useState(false);
@@ -50,6 +51,7 @@ export function CharactersPage() {
 
   const shown = useMemo(() => {
     const list = (data ?? []).filter((c) => {
+      if (favOnly && !c.fav) return false;
       if (tag && !c.tags.includes(tag)) return false;
       return !q || `${c.name} ${c.creator} ${c.tags.join(' ')} ${c.creatorNotes}`.toLowerCase().includes(q);
     });
@@ -60,7 +62,8 @@ export function CharactersPage() {
       tokens: (a, b) => b.tokens - a.tokens,
     };
     return list.sort((a, b) => Number(b.fav) - Number(a.fav) || by[sort](a, b));
-  }, [data, q, tag, sort]);
+  }, [data, q, tag, sort, favOnly]);
+  const favCount = useMemo(() => (data ?? []).filter((c) => c.fav).length, [data]);
 
   const importPaths = async (paths: string[]) => {
     if (!paths.length) return;
@@ -81,9 +84,20 @@ export function CharactersPage() {
     void importPaths([...e.dataTransfer.files].map((f) => window.innkeeper.pathForFile(f)).filter(Boolean));
   };
 
+  // 收藏夹里的卡要先取消收藏，批量删除时跳过它们
   const removeSelected = async () => {
-    const files = [...selected];
-    const ok = await confirm({ title: `删除 ${files.length} 张角色卡`, body: '卡片会移到系统回收站，聊天记录保留。', confirm: '删除', danger: true });
+    const kept = new Set((data ?? []).filter((c) => c.fav && selected.has(c.file)).map((c) => c.file));
+    const files = [...selected].filter((f) => !kept.has(f));
+    if (!files.length) {
+      toast('选中的都在收藏夹里，先取消收藏才能删除', 'info');
+      return;
+    }
+    const ok = await confirm({
+      title: `删除 ${files.length} 张角色卡`,
+      body: `卡片会移到系统回收站，聊天记录保留。${kept.size ? `另外 ${kept.size} 张在收藏夹里，不会删除。` : ''}`,
+      confirm: '删除',
+      danger: true,
+    });
     if (!ok) return;
     if (await attempt(() => call('chars:remove', files), '已移到回收站')) setSelected(new Set());
   };
@@ -133,6 +147,10 @@ export function CharactersPage() {
         <div className="chars-bar">
           <SearchInput value={query} onChange={setQuery} placeholder="按名字、作者、标签搜索" style={{ width: 260 }} />
           <div className="row grow chars-tags">
+            <button type="button" className="tag" aria-pressed={favOnly} title="收藏夹里的卡要先取消收藏才能删除" onClick={() => setFavOnly(!favOnly)}>
+              <Heart size={11} weight={favOnly ? 'fill' : 'regular'} />
+              收藏夹 <span className="num">{favCount}</span>
+            </button>
             {tags.map((t) => (
               <button key={t} type="button" className="tag" aria-pressed={tag === t} onClick={() => setTag(tag === t ? null : t)}>
                 {t}
@@ -191,7 +209,11 @@ export function CharactersPage() {
           />
         ))}
       </div>
-      {data && data.length > 0 && shown.length === 0 && <p className="dim" style={{ padding: '60px 0', textAlign: 'center' }}>没有匹配的角色</p>}
+      {data && data.length > 0 && shown.length === 0 && (
+        <p className="dim" style={{ padding: '60px 0', textAlign: 'center' }}>
+          {favOnly && favCount === 0 ? '收藏夹还是空的。点卡片右上角的心形收进来，收藏夹里的卡要先取消收藏才能删除。' : '没有匹配的角色'}
+        </p>
+      )}
 
       {selected.size > 0 && (
         <div className="savebar">
@@ -244,7 +266,7 @@ function CharCard({ c, selecting, selected, onOpen, onSelect }: { c: CharacterSu
             </span>
           </Tip>
         )}
-        <button type="button" className={classes('card-flag fav', c.fav && 'on')} aria-label={c.fav ? '取消收藏' : '收藏'} onClick={() => void attempt(() => call('chars:setFav', c.file, !c.fav))}>
+        <button type="button" className={classes('card-flag fav', c.fav && 'on')} aria-label={c.fav ? '移出收藏夹' : '收进收藏夹'} title={c.fav ? '移出收藏夹' : '收进收藏夹'} onClick={() => void attempt(() => call('chars:setFav', c.file, !c.fav))}>
           <Heart size={13} weight={c.fav ? 'fill' : 'regular'} />
         </button>
       </span>
@@ -345,7 +367,7 @@ function CharacterSheet({ file, onClose, onOpen }: { file: string | null; onClos
             </div>
           </div>
           <div className="char-head-tools">
-            <IconButton icon={Heart} size="sm" label={c?.fav ? '取消收藏' : '收藏'} onClick={() => c && void attempt(() => call('chars:setFav', c.file, !c.fav))} style={c?.fav ? { color: 'var(--amber)' } : undefined} />
+            <IconButton icon={Heart} size="sm" label={c?.fav ? '移出收藏夹' : '收进收藏夹'} onClick={() => c && void attempt(() => call('chars:setFav', c.file, !c.fav))} style={c?.fav ? { color: 'var(--amber)' } : undefined} />
             <Menu
               items={[
                 { label: '导出 PNG', icon: Export, onSelect: () => held && void attempt(() => call('chars:export', held, 'png')) },
@@ -367,7 +389,9 @@ function CharacterSheet({ file, onClose, onOpen }: { file: string | null; onClos
                     }),
                 },
                 'sep',
-                { label: '删除', icon: Trash, danger: true, onSelect: () => void remove() },
+                c?.fav
+                  ? { label: '在收藏夹里，先取消收藏才能删除', icon: Trash, disabled: true, onSelect: () => undefined }
+                  : { label: '删除', icon: Trash, danger: true, onSelect: () => void remove() },
               ]}
             >
               <Button variant="ghost" size="sm" icon={DotsThreeOutline} aria-label="更多" />

@@ -283,14 +283,14 @@ const SHARED = [
 export const EXTENSION_JS = extensionSource.replace('/* @innkeeper-shared */', () => SHARED);
 
 const MANIFEST = {
-  display_name: '掌柜 · 自动配图',
+  display_name: '掌柜 · 配图与收藏夹',
   loading_order: 100,
   requires: [],
   optional: [],
   js: 'index.js',
   css: '',
   author: '掌柜',
-  version: '1.4.0',
+  version: '1.5.0',
 };
 
 async function installExtension(instance: TavernInstance): Promise<void> {

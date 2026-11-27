@@ -357,9 +357,29 @@ export async function exportCharacter(file: string, format: 'png' | 'json'): Pro
   return filePath;
 }
 
-/** 删除走系统回收站，聊天记录保留。 */
+/** 收藏夹里的卡的名字。读不出来的卡不算收藏，照常能删。 */
+async function favoriteNames(instance: TavernInstance, files: string[]): Promise<string[]> {
+  const names: string[] = [];
+  for (const file of files) {
+    if (!exists(path.join(charsDir(instance), assertPlainName(file)))) continue;
+    try {
+      const f = cardFields((await loadCard(instance, file)).card);
+      if (f.fav) names.push(f.name || path.parse(file).name);
+    } catch {
+      /* 坏卡 */
+    }
+  }
+  return names;
+}
+
+/** 删除走系统回收站，聊天记录保留。收藏夹里的卡要先取消收藏：只要有一张在收藏夹里，这次一张都不删。 */
 export async function removeCharacters(files: string[]): Promise<void> {
   const instance = await requireInstance();
+  const kept = await favoriteNames(instance, files);
+  if (kept.length) {
+    const who = kept.slice(0, 3).map((n) => `「${n}」`).join('') + (kept.length > 3 ? `等 ${kept.length} 张卡` : '');
+    throw new UserError(`${who}在收藏夹里`, '先取消收藏再删除。');
+  }
   for (const file of files) {
     const full = path.join(charsDir(instance), assertPlainName(file));
     if (exists(full)) await shell.trashItem(full);

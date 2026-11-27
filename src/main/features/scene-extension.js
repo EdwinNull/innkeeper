@@ -1,4 +1,4 @@
-// 掌柜：聊天里配图、人物统一与短片。开关和命令由掌柜写在 extension_settings.innkeeper_scene，请在掌柜的生图页里修改。
+// 掌柜：聊天里配图、人物统一、短片、精绘，以及收藏夹里的角色不让删。开关和命令由掌柜写在 extension_settings.innkeeper_scene，请在掌柜里修改。
 // getContext() 返回的是当时的快照，当前角色、聊天记录要在用到时现取。
 /* @innkeeper-shared */
 
@@ -315,7 +315,8 @@ function addMissingModels() {
   if (missing.some((m) => m.value === sd.model)) select.value = sd.model;
 }
 
-{
+// 只在酒馆页面里运行，单元测试里没有页面
+if (typeof document !== 'undefined') {
   // 酒馆的生图扩展和这个扩展谁先载入不一定，下拉框出现后再盯
   const since = Date.now();
   const wait = setInterval(() => {
@@ -445,6 +446,84 @@ ctx.SlashCommandParser.addCommandObject(
     callback: async () => polishScene(),
   }),
 );
+
+// —— 收藏夹：收藏了的角色要先取消收藏才能删。掌柜里删会被拒，酒馆里删在这里拦。
+// 酒馆删人只走 /api/characters/delete（单个、批量、斜杠命令都是），拦住这个请求就都管住了。
+// 收藏可能是在掌柜里改的，页面里的角色数据不一定是新的，所以以酒馆后端读到的卡为准。
+
+// 只在酒馆页面里运行，单元测试里没有页面
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  const isFavorite = (c) => [c?.fav, c?.data?.extensions?.fav].some((v) => v === true || v === 'true');
+  const nativeFetch = window.fetch.bind(window);
+
+  /** 后端里这张卡现在是不是收藏。问不到时按页面里的算。 */
+  async function favoriteNow(avatar) {
+    const known = SillyTavern.getContext().characters?.find((c) => c.avatar === avatar);
+    try {
+      const res = await nativeFetch('/api/characters/get', {
+        method: 'POST',
+        headers: SillyTavern.getContext().getRequestHeaders(),
+        body: JSON.stringify({ avatar_url: avatar }),
+      });
+      if (!res.ok) return isFavorite(known);
+      const fresh = await res.json();
+      const fav = isFavorite(fresh);
+      // 顺手把页面里的状态对齐，下次点删除不用再问
+      if (known) {
+        known.fav = fav;
+        if (known.data?.extensions) known.data.extensions.fav = fav;
+      }
+      return fav;
+    } catch {
+      return isFavorite(known);
+    }
+  }
+
+  function warnFavorite(avatar) {
+    const name = SillyTavern.getContext().characters?.find((c) => c.avatar === avatar)?.name ?? avatar.replace(/\.png$/i, '');
+    toastr.warning(`「${name}」在收藏夹里，先取消收藏再删除。`, '掌柜 · 收藏夹', { timeOut: 6000 });
+  }
+
+  window.fetch = async function fetch(input, init) {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input?.url ?? '');
+    let target = '';
+    try {
+      if (new URL(url, location.href).pathname === '/api/characters/delete' && typeof init?.body === 'string') target = JSON.parse(init.body).avatar_url ?? '';
+    } catch {
+      /* 不是这个请求 */
+    }
+    if (target && (await favoriteNow(target))) {
+      warnFavorite(target);
+      return new Response(null, { status: 403, statusText: 'Forbidden' });
+    }
+    return nativeFetch(input, init);
+  };
+
+  // 角色面板上的删除按钮：收藏了的在弹确认框、关聊天之前就拦下。页面里记的是收藏、后端已经取消了的，问过后再放行。
+  let recheck = false;
+  document.addEventListener(
+    'click',
+    (event) => {
+      const button = event.target instanceof Element ? event.target.closest('div#delete_button') : null;
+      if (!button || recheck) return;
+      const now = SillyTavern.getContext();
+      const character = now.characters?.[now.characterId];
+      if (!character || !isFavorite(character)) return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      void favoriteNow(character.avatar).then((fav) => {
+        if (fav) return warnFavorite(character.avatar);
+        recheck = true;
+        try {
+          button.click();
+        } finally {
+          recheck = false;
+        }
+      });
+    },
+    true,
+  );
+}
 
 // —— 每条回复后自动配图，按设置每隔几张再做成动图
 // 只跟着新回复和重新生成走。配图自己贴进来的消息类型是 extension，开场白是 first_message。
