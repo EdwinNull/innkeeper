@@ -93,6 +93,8 @@ if (mac && macMajor < 26) {
 // —— 本机语音：sherpa-onnx 原生组件与 Kokoro 模型，真的念一句 ——
 t = await waitTask(await must('voice:install'));
 check('安装本机语音', t?.state === 'done', t?.error);
+const voice = await must('voice:select', 'local');
+check('配音后端切到本机语音', voice.defaultVoice === '女声001', voice.defaultVoice);
 const r = await must('voice:test', '门铃响了一声。她从柜台后面抬起头，笑着说，今天来得真早。', '女声001');
 const mp3 = Buffer.from(r.dataUrl?.split(',')[1] ?? '', 'base64');
 check('本机语音念出 MP3', r.ok && mp3[0] === 0xff && mp3.length > 20000, [r.ok, r.message, mp3.length]);

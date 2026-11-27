@@ -158,12 +158,17 @@ describe('局域网地址', () => {
 });
 
 describe.runIf(process.platform === 'win32')('ComfyUI 安装', () => {
-  it('系统自带的 tar 能解 7z，进度走到头', async () => {
+  it('系统自带的 tar 能解 7z，进度走到头', async (ctx) => {
     const src = path.join(dir, 'src', 'ComfyUI_windows_portable', 'ComfyUI');
     await fsp.mkdir(src, { recursive: true });
     for (let i = 0; i < 40; i++) await fsp.writeFile(path.join(src, `中文 名字${i}.txt`), `内容${i}`);
     const archive = path.join(dir, 'x.7z');
-    execFileSync(path.join(process.env.SystemRoot!, 'System32', 'tar.exe'), ['-a', '-cf', archive, '-C', path.join(dir, 'src'), 'ComfyUI_windows_portable']);
+    // 打 7z 要 Windows 11 23H2 以上的 tar；CI 的 Windows Server 上一打就崩，那里测不了，掌柜运行时会改用 7-Zip
+    try {
+      execFileSync(path.join(process.env.SystemRoot!, 'System32', 'tar.exe'), ['-a', '-cf', archive, '-C', path.join(dir, 'src'), 'ComfyUI_windows_portable']);
+    } catch {
+      ctx.skip();
+    }
     const out = path.join(dir, 'out');
     await fsp.mkdir(out);
     const seen: number[] = [];
