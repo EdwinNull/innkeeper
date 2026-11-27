@@ -118,8 +118,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # 只取安装包，mac 检查时的截图不发出去
       - uses: actions/download-artifact@v5
         with:
+          pattern: '{windows,mac}'
           path: dist
           merge-multiple: true
       - name: 发布
